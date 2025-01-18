@@ -9,26 +9,148 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+```{r}
+library(readr)
+library(dplyr)
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+# File path to the folder containing raw download CSVs
+folder_path <- "~/Desktop/GPSextract2"
+csv_files <- list.files(path = folder_path, full.names = TRUE)
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+# Create a new empty data frame where extracted values will be stored
+extracted_data <- data.frame(
+  Location_Lat = numeric(), 
+  Location_Lon = numeric(), 
+  Timestamp = character(), 
+  Temp = numeric(),
+  HDOP = numeric(), 
+  Signal_Strength = numeric(), 
+  Source_File = character()
+)
 
-```{r cars}
-summary(cars)
+# Loop through each file
+for (file in csv_files) {
+  print(paste("Processing file:", basename(file)))
+  
+  # Check if the file exists and is not empty
+  if (file.exists(file) && file.info(file)$size > 0) {
+    # Try reading the first line to check for delimiters
+    first_line <- readLines(file, n = 1)
+    
+    # Check for tab-delimited files
+    if (grepl("\t", first_line)) {
+      try({
+        # Read the file as a tab-delimited file
+        data <- read_delim(file, delim = "\t", col_types = cols(.default = "c"))
+        print(paste("Tab-delimited file:", basename(file)))
+      }, silent = TRUE)
+    } else {
+      try({
+        # Attempt to read as a comma-delimited CSV
+        data <- read.csv(file, stringsAsFactors = FALSE)
+        print(paste("Comma-delimited CSV file:", basename(file)))
+      }, silent = TRUE)
+    }
+    
+    # Check if required columns exist
+    if (all(c("location-lat", "location-lon", "hdop", "Timestamp", "signal-strength") %in% names(data))) {
+      filtered_data <- data %>%
+        mutate(
+          Location_Lat = as.numeric(`location-lat`),
+          Location_Lon = as.numeric(`location-lon`),
+          Timestamp = as.character(Timestamp),
+          Temp = as.numeric(`Temp. (?C)`),
+          HDOP = as.numeric(hdop),
+          Signal_Strength = as.numeric(`signal-strength`),
+          Source_File = basename(file)
+        ) %>%
+        filter(
+          !is.na(Location_Lat) & !is.na(Location_Lon) &
+          !is.na(HDOP) & !is.na(Signal_Strength)
+        ) %>%
+        select(Location_Lat, Location_Lon, HDOP, Timestamp, Temp, Signal_Strength, Source_File)
+      
+      # Combine the extracted data into the main data frame
+      extracted_data <- bind_rows(extracted_data, filtered_data)
+    } else { 
+      print(paste("One or more required columns not found in", basename(file)))
+    }
+  } else {
+    print(paste("File does not exist or is empty:", basename(file)))
+  }
+}
+
+# Print the final result
+print(extracted_data)
 ```
 
-## Including Plots
 
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r}
+#save the data with the file names
+write_csv(extracted_data, file.path(getwd(), "combined.csv"))
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+this chunk tells you how many rows of data you will have if you removed duplicate points
+```{r}
+# Specify the file name and read the CSV
+filtered_file <- "combined.csv"
+data <- read_csv(filtered_file)
 
+# Remove duplicate rows based on latitude and longitude
+unique_data <- data %>%
+  distinct(Location_Lat, Location_Lon, .keep_all = TRUE)
 
-Making Changes
+# Print the number of rows remaining
+print(paste("Number of rows after omitting duplicates:", nrow(unique_data)))
+
+# Save the filtered data back to a new CSV file
+filtered_file <- "combined.csv"
+write_csv(extracted_data, file.path(getwd(), "filter_combined.csv"))
+```
+
+Remove any points above and below the study area, N/S boundary, (this will remove points from testing at campsite well N of study site and some well S from testing)
+```{r}
+# Load necessary library
+library(dplyr)
+library(readr)
+
+# Specify the file name of your extracted data from chunk above
+extracted_file <- "filter_combined.csv"
+data <- read_csv(extracted_file)
+
+# Set the latitude range
+latitude_min <- 45.76780370685928
+latitude_max <- 45.88839438858028
+
+# Filter rows within the latitude range
+filtered_data <- data %>%
+  filter(Location_Lat > latitude_min & Location_Lat < latitude_max)
+
+unique_data <- filtered_data %>%
+  distinct(Location_Lat, Location_Lon, .keep_all = TRUE)
+
+# Save the resulting data frame to a new CSV file called 'scrubish.csv'
+write_csv(unique_data, file.path(getwd(), "scrubish.csv"))
+```
+
+this is radio data
+```{r}
+library(readxl)
+
+# Specify the file path in your Downloads folder
+file_path <- "~/Downloads/2024 turtle tracking data (4).xlsx"
+
+# Read the data
+tracking_data <- read_excel(file_path)
+
+# Read the sheet named "Data"
+tracking_data <- read_excel(file_path, sheet = "Data")
+
+# Save the data as a CSV in your working directory
+write.csv(tracking_data, file.path(getwd(), "radio_scrubish.csv"), row.names = FALSE)
+```
+
+```{r}
+str(tracking_data)
+```
 
